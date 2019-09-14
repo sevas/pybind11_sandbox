@@ -1,3 +1,5 @@
-_build_vs2019/
-_conan/
+_build_*/
+_conan_*/
+
 python/mylib.pyd
+python/mylib.so
