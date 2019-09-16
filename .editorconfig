@@ -20,7 +20,7 @@ indent_size = 4
 
 [*.{h,cpp,cxx,cc,hpp,hxx}]
 indent_style = tab
-
+indent_size = 4
 
 # Tab indentation (no size specified)
 [Makefile]
