@@ -1,5 +1,6 @@
 #include <iostream>
 
+#include <chrono>
 #include <functional>
 #include <numeric>
 #include <string>
@@ -22,41 +23,48 @@ float sum(const std::vector<float>& values) { return std::accumulate(values.begi
 
 float sum_eigen(Eigen::MatrixXf& m)
 {
-    std::cout << m.rows() << "  " << m.cols() << std::endl;
-    return m.sum();
+	std::cout << m.rows() << "  " << m.cols() << std::endl;
+	return m.sum();
 }
+
+static std::map<std::string, uint64_t> timings;
 
 Eigen::MatrixX3f mv_mul(const Eigen::Matrix3f& M, const Eigen::MatrixX3f& points) { return M * points; }
 
 void array_add_scalar_stl(std::vector<float>& in, const float val)
 {
-    for (auto i = 0u; i < in.size(); ++i)
-    {
-        in[i] += val;
-    }
+	auto before = std::chrono::high_resolution_clock::now();
+	for (auto i = 0u; i < in.size(); ++i)
+	{
+		in[i] += val;
+	}
+	auto after = std::chrono::high_resolution_clock::now();
+
+	auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(after - before).count();
+	timings["array_add_scalar_stl"] = elapsed;
 }
 
 void array_add_scalar_eigen(Eigen::MatrixXf& in, const float val)
 {
-    std::cout << "ptr: " <<  &in << std::endl;
+	std::cout << "ptr: " << &in << std::endl;
 
 	Eigen::MatrixXf values(in.rows(), in.cols());
-    values.setConstant(val);
+	values.setConstant(val);
 	in += values;
 }
 
 struct thing
 {
-    enum class elem_dtype
-    {
-        dt_void,
-        dt_int,
-        dt_float,
-        dt_double,
-        dt_char
-    };
-    elem_dtype dtype;
-    void* data;
+	enum class elem_dtype
+	{
+		dt_void,
+		dt_int,
+		dt_float,
+		dt_double,
+		dt_char
+	};
+	elem_dtype dtype;
+	void* data;
 };
 
 // clang-format off
@@ -77,35 +85,35 @@ class data_manager
 {
 
   public:
-    data_manager()
-    {
-        things["vector_int"] = thing{thing::elem_dtype::dt_int, (void*)new std::vector<int>(10)};
-        things["vector_float"] = thing{thing::elem_dtype::dt_float, (void*)new std::vector<float>(10)};
-        things["vector_double"] = thing{thing::elem_dtype::dt_double, (void*)new std::vector<double>(10)};
-    }
+	data_manager()
+	{
+		things["vector_int"] = thing{thing::elem_dtype::dt_int, (void*)new std::vector<int>(10)};
+		things["vector_float"] = thing{thing::elem_dtype::dt_float, (void*)new std::vector<float>(10)};
+		things["vector_double"] = thing{thing::elem_dtype::dt_double, (void*)new std::vector<double>(10)};
+	}
 
-    ~data_manager() {}
+	~data_manager() {}
 
-    template <typename T> std::vector<T>& get_data(const std::string& name)
-    {
-        auto item = things[name];
+	template <typename T> std::vector<T>& get_data(const std::string& name)
+	{
+		auto item = things[name];
 
-        typedef std::vector<T> ptr_type;
-        return *reinterpret_cast<ptr_type*>(item.data);
-    }
+		typedef std::vector<T> ptr_type;
+		return *reinterpret_cast<ptr_type*>(item.data);
+	}
 
-    std::vector<std::string> get_names() const
-    {
-        std::vector<std::string> names;
-        for (auto& thing_entry : things)
-        {
-            names.push_back(thing_entry.first);
-        }
-        return names;
-    }
+	std::vector<std::string> get_names() const
+	{
+		std::vector<std::string> names;
+		for (auto& thing_entry : things)
+		{
+			names.push_back(thing_entry.first);
+		}
+		return names;
+	}
 
   private:
-    std::map<std::string, thing> things;
+	std::map<std::string, thing> things;
 };
 
 std::vector<int> get_vector_int(data_manager& dm, const std::string& name) { return dm.get_data<int>(name); }
@@ -114,28 +122,42 @@ std::vector<float> get_vector_float(data_manager& dm, const std::string& name) {
 
 std::vector<double> get_vector_double(data_manager& dm, const std::string& name) { return dm.get_data<double>(name); }
 
+uint64_t get_timing(const std::string& name)
+{
+	if (timings.find(name) != timings.end())
+	{
+		return timings[name];
+	}
+	else
+	{
+		return std::numeric_limits<uint64_t>::max();
+	}
+}
+
+
 PYBIND11_MODULE(mylib, m)
 {
-    m.doc() = "pybind11 example plugin"; // optional module docstring
+	m.doc() = "pybind11 example plugin"; // optional module docstring
 
-    m.def("add", &add, "A function which adds two numbers");
-    m.def("make_ints", &make_ints, "A function ");
-    m.def("sum", &sum, "Sums the elements in a vector");
-    m.def("sum_eigen", &sum_eigen, "Sums the elements in an arbitrary matrix");
+	m.def("add", &add, "A function which adds two numbers");
+	m.def("make_ints", &make_ints, "A function ");
+	m.def("sum", &sum, "Sums the elements in a vector");
+	m.def("sum_eigen", &sum_eigen, "Sums the elements in an arbitrary matrix");
 
 	m.def("array_add_scalar_stl", &array_add_scalar_stl, "Sums the elements in a vector");
-    m.def("array_add_scalar_eigen", &array_add_scalar_eigen, "Sums the elements in an arbitrary matrix");
+	m.def("array_add_scalar_eigen", &array_add_scalar_eigen, "Sums the elements in an arbitrary matrix");
 
-	
-    m.def("mv_mul", &mv_mul, "Mat x Vec product");
+	m.def("mv_mul", &mv_mul, "Mat x Vec product");
+	m.def("get_timing", &get_timing, "get time for key");
 
-    // clang-format off
-    py::class_<data_manager>(m, "DataManager")
+		
+	// clang-format off
+	py::class_<data_manager>(m, "DataManager")
 		.def(py::init())
 		.def("get_names", &data_manager::get_names);
-    // clang-format on
+	// clang-format on
 
-    m.def("get_vector_int", &get_vector_int);
-    m.def("get_vector_float", &get_vector_float);
-    m.def("get_vector_double", &get_vector_double);
+	m.def("get_vector_int", &get_vector_int);
+	m.def("get_vector_float", &get_vector_float);
+	m.def("get_vector_double", &get_vector_double);
 }
