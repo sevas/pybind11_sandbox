@@ -66,6 +66,7 @@ struct thing
     };
     elem_dtype dtype;
     void* data;
+    void (*deleter)(const void*);
 };
 
 namespace depthsense
@@ -80,18 +81,21 @@ struct vertex
 } // namespace depthsense
 
 // clang-format off
-template<thing::elem_dtype dt> struct dtype_to_type{ typedef void elem_type; };
+template<thing::elem_dtype dt> struct dtype_to_type{ typedef void elem_type;  };
 template<> struct dtype_to_type<thing::elem_dtype::dt_int> { typedef int elem_type; };
 template<> struct dtype_to_type<thing::elem_dtype::dt_float> { typedef float elem_type; };
-template<> struct dtype_to_type<thing::elem_dtype::dt_double> { typedef double elem_type;};
+template<> struct dtype_to_type<thing::elem_dtype::dt_double> { typedef double elem_type; };
 template<> struct dtype_to_type<thing::elem_dtype::dt_char> { typedef char elem_type;  };
+
 template<> struct dtype_to_type<thing::elem_dtype::dt_vertex> { typedef depthsense::vertex elem_type;  };
 
-template<typename T> struct type_to_dtype { static const thing::elem_dtype dtype=thing::elem_dtype::dt_void;   static constexpr char* name = "void";		};
-template<> struct type_to_dtype<int> { 		static const thing::elem_dtype dtype = thing::elem_dtype::dt_int;   static constexpr char* name = "int";		};
-template<> struct type_to_dtype<float> { 	static const thing::elem_dtype dtype = thing::elem_dtype::dt_float;   static constexpr char* name = "float";	};
-template<> struct type_to_dtype<double> { 	static const thing::elem_dtype dtype = thing::elem_dtype::dt_double;   static constexpr char* name = "double";	};
-template<> struct type_to_dtype<char> { 	static const thing::elem_dtype dtype = thing::elem_dtype::dt_char;   static constexpr char* name = "char";		};
+
+template<typename T> struct type_to_dtype {     static const thing::elem_dtype dtype=thing::elem_dtype::dt_void;   static constexpr char* name = "void";};
+template<> struct type_to_dtype<int>    { static const thing::elem_dtype dtype = thing::elem_dtype::dt_int;     static constexpr char* name = "int";};
+template<> struct type_to_dtype<float>  { static const thing::elem_dtype dtype = thing::elem_dtype::dt_float;   static constexpr char* name = "float";};
+template<> struct type_to_dtype<double> { static const thing::elem_dtype dtype = thing::elem_dtype::dt_double;  static constexpr char* name = "double";};
+template<> struct type_to_dtype<char>   { static const thing::elem_dtype dtype = thing::elem_dtype::dt_char;    static constexpr char* name = "char";};
+
 template<> struct type_to_dtype<depthsense::vertex> { static const thing::elem_dtype dtype = thing::elem_dtype::dt_vertex;   static constexpr char* name = "vertex";};
 
 // clang-format on
@@ -112,8 +116,15 @@ class data_store
 
     template <typename T> void add(const std::string& name, const std::vector<T>& data)
     {
-        std::vector<T>* copied = new std::vector<T>(data);
-        things[name] = thing{type_to_dtype<T>::dtype, reinterpret_cast<void*>(copied)};
+        auto* copied = new std::vector<T>(data);
+        auto deleter = [](const void* obj_ptr) {
+            using std::vector;
+
+            void* x = const_cast<void*>(obj_ptr);
+            reinterpret_cast<std::vector<T>*>(x)->~vector<T>();
+        };
+
+        things[name] = thing{type_to_dtype<T>::dtype, reinterpret_cast<void*>(copied), deleter};
     }
 
     template <typename T> void remove(const std::string& name)
@@ -134,7 +145,17 @@ class data_store
         for (auto& name : names)
         {
             auto& item = things[name];
+            try
+            {
+                item.deleter(item.data);
+                things.erase(things.find(name));
+            }
+            catch (const std::exception&e)
+            {
+                std::cerr << "could not delete item " << name << ". Reason: " << e.what() << std::endl;
+            }
         }
+
     }
 
     template <typename T> std::vector<T>& get_data(const std::string& name)
@@ -151,6 +172,7 @@ class data_store
             typedef std::vector<T> ptr_type;
             return *reinterpret_cast<ptr_type*>(item.data);
         }
+
         throw py::key_error(std::string("wrong type '") + type_to_dtype<T>::name + "' for data named " + name);
     }
 
